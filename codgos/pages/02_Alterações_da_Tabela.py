@@ -3,7 +3,6 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st 
 import pendulum
-from openpyxl import load_workbook
 st.set_page_config(layout="wide")
 
 #Passando o caminho do arquivo e o aquivo-----------------------------------------------------------
