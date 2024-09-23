@@ -6,3 +6,4 @@ pathlib
 requests
 bs4
 datetime 
+openpyxl 
