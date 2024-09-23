@@ -1,4 +1,8 @@
 streamlit
 plotly.express  
 pendulum
-
+pandas
+pathlib
+requests
+bs4
+datetime 
