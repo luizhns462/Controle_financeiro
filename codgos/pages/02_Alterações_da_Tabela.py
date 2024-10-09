@@ -99,7 +99,6 @@ if but_salvar:
         df_editado_sicredi.to_excel(writer, sheet_name='SICREDI', index=False)
         df_editado_picpay.to_excel(writer, sheet_name='PICPAY', index=False)
         df_editado_magalu.to_excel(writer, sheet_name='MAGAZINE LUIZA', index=False)
-if but_salvar:
     with pd.ExcelWriter(arquivos_tabela, engine='openpyxl') as writer:  
         df_editado_outrosgastos.to_excel(writer, sheet_name='OUTROS GASTOS', index=False) 
         df_editado_investimentos.to_excel(writer, sheet_name='INVESTIMENTO', index=False)
