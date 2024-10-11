@@ -6,3 +6,4 @@ bs4
 pendulum
 datetime
 openpyxl
+plotly.express
