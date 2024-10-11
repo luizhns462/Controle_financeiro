@@ -1,9 +1,0 @@
-streamlit
-pathlib
-pandas
-requests
-bs4
-pendulum
-datetime
-openpyxl
-plotly.express
