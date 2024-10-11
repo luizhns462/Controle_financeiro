@@ -6,6 +6,7 @@ st.set_page_config(layout="wide")
 
 #Passando o caminho do arquivo e o aquivo-----------------------------------------------------------
 pasta_arquivo = Path(__file__).parents[2] / 'Arquivos'
+st.write(pasta_arquivo)
 arquivos_tabela = pasta_arquivo / 'CUSTOS E INVESTIMENTOS02.xlsx'
 arquivos_tabela_cartão = pasta_arquivo / 'ARQUIVO CARTÃO.xlsx'
 arquivos_tabela_backup = pasta_arquivo / 'backup_custo_investimentos.xlsx'
