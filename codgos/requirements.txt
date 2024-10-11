@@ -6,4 +6,3 @@ bs4
 pendulum
 datetime
 plotly
-plotly.express
