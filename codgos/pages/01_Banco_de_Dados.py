@@ -79,4 +79,3 @@ elif coluna_filtro in colunas_obj_object:
     else:
         st.write(df_formatado) 
 but_limpar = col2.button('Limpar')
-

@@ -288,7 +288,3 @@ def função_custo_mensal():
         df_custo_mensal['ANO'] = df_custo_mensal['ANO'].astype(str)
         df_custo_mensal_final = pd.concat([df_custo_mensal_final, df_custo_mensal], axis=0)
     return df_custo_mensal_final
-
-
-
-
