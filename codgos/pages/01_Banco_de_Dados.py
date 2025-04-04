@@ -14,27 +14,28 @@ filtro_abas = st.sidebar.selectbox('Selecione as informaçoes que vc que analiza
 
 #Lendo o aquivo exel .xlsx/ selecionando a tabela que deseja fazer a analize  -----------------------
 mensagem = ('***Você Esta na Pagina de Visualização do Banco de Dados.***')
+col1,col2,col3 = st.columns(3)
 if filtro_abas == 'Outros Gastos':
-    st.header('Outros gastos')
+    col2.title('Outros gastos')
     st.markdown(mensagem)
     st.session_state.funçao_outros_gastos = funçao_outros_gastos()
     df_aquivo_exel = st.session_state.funçao_outros_gastos
 elif filtro_abas == 'Cartão':
-    st.header('Cartão')  
+    col2.title('Cartão')  
     st.markdown(mensagem)
     st.session_state.funçao_cartao = funçao_cartao()
     df_aquivo_exel = st.session_state.funçao_cartao
 elif filtro_abas == 'Investimentos':
-    st.header('Investimento')  
+    col2.title('Investimento')  
     st.markdown(mensagem)
     st.session_state.função_investimento = funçao_investimento()
     df_aquivo_exel = st.session_state.função_investimento
 elif filtro_abas == 'Proventos':
-    st.header('Proventos') 
+    col2.title('Proventos') 
     st.title('Esta aba esta INDISPONIVEL no momento')
     st.markdown(mensagem) 
 elif filtro_abas == 'Suplemento':
-    st.header('Suplemento')  
+    col2.title('Suplemento')  
     st.markdown(mensagem)
     df_aquivo_exel = funçao_suplemento()
 else:
