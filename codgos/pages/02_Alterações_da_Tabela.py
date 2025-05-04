@@ -30,7 +30,7 @@ df_suplemento = pd.read_excel(arquivos_tabela,sheet_name='SUPLEMENTO')
 
 #fazendo o bekup do aquivo do cartão------------------------------------------------------------------------------
 with pd.ExcelWriter(arquivos_tabela_cartão_beckup, engine='openpyxl') as writer:
-    df_cartão_xp .to_excel(writer, sheet_name='XP', index=False)
+    df_cartão_xp.to_excel(writer, sheet_name='XP', index=False)
     df_cartão_sicredi.to_excel(writer, sheet_name='SICREDI', index=False)
     df_cartão_picpay.to_excel(writer, sheet_name='PICPAY', index=False)
 

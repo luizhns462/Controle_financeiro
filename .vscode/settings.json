@@ -1,4 +1,10 @@
 {
     "python.analysis.typeCheckingMode": "basic",
-    "python.analysis.autoImportCompletions": false
+    "python.analysis.autoImportCompletions": false,
+    "workbench.editorAssociations": {
+        "*.xlsm": "default",
+        "*.zip": "default",
+        "*.pyc": "default",
+        "file:/**/*.xlsx": "jupyter-data-wrangler"
+    }
 }
