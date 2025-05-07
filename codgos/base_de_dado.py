@@ -53,7 +53,7 @@ for pasta in os.listdir(pasta_arquivo):
         pastas_fatura.append(pasta)
 
 # Carregar índice de controle
-df_banco = pd.read_excel(Banco_de_Dados21, sheet_name='Indices')
+df_banco = pd.read_excel(Banco_de_Dados21, sheet_name='Indices', engine='openpyxl')
 
 # Criar DataFrame final
 df_final = pd.DataFrame()
