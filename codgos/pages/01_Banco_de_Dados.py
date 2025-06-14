@@ -3,7 +3,6 @@ import streamlit as st
 from base_de_dado import funçao_cartao
 from base_de_dado import funçao_investimento
 from base_de_dado import funçao_suplemento
-from base_de_dado import funçao_outros_gastos
 
 st.set_page_config(layout="wide")
 
@@ -15,12 +14,7 @@ filtro_abas = st.sidebar.selectbox('Selecione as informaçoes que vc que analiza
 #Lendo o aquivo exel .xlsx/ selecionando a tabela que deseja fazer a analize  -----------------------
 mensagem = ('***Você Esta na Pagina de Visualização do Banco de Dados.***')
 col1,col2,col3 = st.columns(3)
-if filtro_abas == 'Outros Gastos':
-    col2.title('Outros gastos')
-    st.markdown(mensagem)
-    st.session_state.funçao_outros_gastos = funçao_outros_gastos()
-    df_aquivo_exel = st.session_state.funçao_outros_gastos
-elif filtro_abas == 'Cartão':
+if filtro_abas == 'Cartão':
     col2.title('Cartão')  
     st.markdown(mensagem)
     st.session_state.funçao_cartao = funçao_cartao()

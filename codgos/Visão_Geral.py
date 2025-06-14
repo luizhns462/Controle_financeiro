@@ -1,18 +1,18 @@
 #Importando funçoes---------------------------------------------------------------------------------
 import streamlit as st 
 import plotly.express as px
+import pandas as pd
 import pendulum
 from base_de_dado import função_cotações
 from base_de_dado import funçao_cartao
-from base_de_dado import funçao_investimento
+from base_de_dado import funçao_cotação_investimento
 from base_de_dado import função_custo_mensal
 from base_de_dado import função_xp
 from base_de_dado import função_sicredi
 from base_de_dado import função_picpay
 from base_de_dado import funçao_salario
-from base_de_dado import funçao_outros_gastos
-from base_de_dado import funçao_suplemento
 from base_de_dado import função_divizão_gasto_mensais
+from base_de_dado import função_Banco_de_Dados21
 #colocando o streamlit no modo layout grande---------------------------------------------------------
 st.set_page_config(layout="wide")
 
@@ -34,7 +34,16 @@ def formatar_numero(x):
     if isinstance(x, float) or isinstance(x, int):
         return f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     return x
-
+st.markdown("""
+            <style>
+            .dataframe tbody td {
+            font-size: 18px; /* Aumenta o tamanho da fonte das células */
+            }
+            .dataframe thead th {
+            font-size: 20px; /* Aumenta o tamanho da fonte do cabeçalho */
+            }
+            </style>
+            """, unsafe_allow_html=True)
 #Lendo o aquivo exel .xlsx/ selecionando a tabela que deseja fazer a analize  -----------------------
 if filtro_abas == 'Custo Mensal':
     col1s,col2s,col3s = st.columns(3)
@@ -43,35 +52,43 @@ if filtro_abas == 'Custo Mensal':
     df_aquivo_exel = st.session_state.custo_mensal
     col1,col2,col3,col4 = st.columns(4) 
     col1.markdown('Total dos Gastos:  '+ str(f" **R${df_aquivo_exel['TOTAL'].sum():,.2f}**".replace(",", "X").replace(".", ",").replace("X", ".")))
-    col2.markdown('Total dos Gastos Pessoais:  '+ str(f" **R${df_aquivo_exel['TOTAL PESSOAL'].sum():,.2f}**".replace(",", "X").replace(".", ",").replace("X", ".")))
-    col3.markdown('Total dos Gastos com Terceiros: '+ str(f" **R${df_aquivo_exel['GASTOS COM TERCEIRO'].sum():,.2f}**".replace(",", "X").replace(".", ",").replace("X", ".")))
+    #col2.markdown('Total dos Gastos Pessoais:  '+ str(f" **R${df_aquivo_exel['TOTAL PESSOAL'].sum():,.2f}**".replace(",", "X").replace(".", ",").replace("X", ".")))
+    #col3.markdown('Total dos Gastos com Terceiros: '+ str(f" **R${df_aquivo_exel['GASTOS COM TERCEIRO'].sum():,.2f}**".replace(",", "X").replace(".", ",").replace("X", ".")))
     col4.markdown('Valor em Conta: '+str(f"**R${funçao_salario():,.2f}**".replace(",", "X").replace(".", ",").replace("X", ".")))
     tb_meses,tb_divmes,tb_individual = st.tabs(['Demontrativo dos Meses','Divisão dos Gastos','Analize Indidual por Mês']) 
     with tb_meses:
-        fig_1 = px.bar(df_aquivo_exel,x='MÊS',y='TOTAL',title='Demontrativo dos Gastos Mensais')
+        col_custo_mensal = ['Todos']
+        col_custo_mensal.extend(list(df_aquivo_exel['ANO'].unique()))
+        but_ano = st.sidebar.selectbox('Filtro',col_custo_mensal)
+        if but_ano != 'Todos':
+            df_aquivo_exel = df_aquivo_exel[(df_aquivo_exel['ANO'] == but_ano)]
+        else:
+            st.session_state.custo_mensal = função_custo_mensal()
+            df_aquivo_exel = st.session_state.custo_mensal
+        fig_1 = px.line(df_aquivo_exel,x='DATA',y='TOTAL',title='Demontrativo dos Gastos Mensais')
         fig_1.update_xaxes(dtick="M1",tickformat="%m/%Y")
         fig_1.update_layout(width=1000)
         fig_1.update_layout(title={'text': "Demontrativo dos Gastos Mensais",'y':0.85,'x':0.5,'xanchor': 'center','yanchor': 'top',  'font': {'family':"Times New Roman",'size': 25}})
         st.write(fig_1)
-        st.write(df_aquivo_exel)
+        st.dataframe(df_aquivo_exel, use_container_width=True)
     with tb_divmes:
-        df_outros_gastos = funçao_outros_gastos()
-        fig_2 = px.pie(( df_outros_gastos[(df_outros_gastos['DESCRIÇÃO GERAL'] != 'TRANSFERÊNCIA')&
-                                         (df_outros_gastos['MODALIDADE'] != 'RECEBIMENTO')]),values='VALOR', names='DESCRIÇÃO GERAL', title='Divisão de Contas')
-        fig_2.update_layout(title={'text':"Divisão de Contas",'y':0.95,'x':0.4,'xanchor': 'center','yanchor': 'top',  'font': {'family':"Times New Roman",'size': 25}})
-        st.write(fig_2)
         colu1,colu2 = st.columns(2)
         df_descriçãos_gastos_ms = função_divizão_gasto_mensais()
-        #fig_5 = px.bar(df_descriçãos_gastos_ms,x='DATA',y='ALIMENTAÇÃO',title='Gastos por Mes')
-        #colu1.write(fig_5)
-        st.write(df_descriçãos_gastos_ms)
+        df_descriçãos_gastos = df_descriçãos_gastos_ms[df_descriçãos_gastos_ms['Valor']> 200]
+        fig_5 = px.pie(df_descriçãos_gastos,values='Valor', names='Descrição', title='Maiores gastos')
+        fig_5.update_traces(textposition='inside', textinfo='percent+label')
+        st.write(fig_5)
+        st.dataframe(df_descriçãos_gastos_ms, use_container_width=True)
     with tb_individual:
-        colunas =['TOTAL PESSOAL','GASTOS COM TERCEIRO','OUTROS GASTOS','GASTO NO CARTÃO']
-        fig = px.line(df_aquivo_exel,x='MÊS',y=colunas,title='Gastos por Mes')
+        colunas =['CARTÃO','TOTAL']
+        fig = px.line(df_aquivo_exel,x='DATA',y=colunas,title='Gastos por Mes')
         fig.update_xaxes(dtick="M1",tickformat="%m/%Y")
         fig.update_layout(width=1000)
         fig.update_layout(title={'text':"Gastos do Cartão ao Longo dos Meses",'y':0.85,'x':0.5,'xanchor': 'center','yanchor': 'top',  'font': {'family':"Times New Roman",'size': 25}})
         st.write(fig)
+        st.session_state.função_Banco_de_Dados21 = função_Banco_de_Dados21()
+        df_banco21 = st.session_state.função_Banco_de_Dados21
+        st.dataframe(df_banco21, use_container_width=True)
 #VISÃO GERALA PARTE DO CARTÃO--------------------------------------------------------------------------------------------------------------------------------------------
 elif filtro_abas == 'Cartão':
     col1s,col2s,col3s = st.columns(3)
@@ -131,7 +148,7 @@ elif filtro_abas == 'Cartão':
 elif filtro_abas == 'Investimentos':
     col1s,col2s,col3s = st.columns(3)
     col2s.title('Investimentos')  
-    st.session_state.função_investimentos = funçao_investimento()
+    st.session_state.função_investimentos = funçao_cotação_investimento()
     df_aquivo_exel = st.session_state.função_investimentos
     st.session_state.função_cotação = função_cotações()
     df_cotação = st.session_state.função_cotação

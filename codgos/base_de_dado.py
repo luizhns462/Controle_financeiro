@@ -13,6 +13,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 import io
 import numpy as np
+import re
 #buscando informaçoes de 'agora' 
 data_agora = pendulum.now()
 #dia 
@@ -41,7 +42,40 @@ pasta_arquivo = Path(__file__).parents[1] / 'Arquivos'
 arquivos_tabela = pasta_arquivo / 'CUSTOS E INVESTIMENTOS02.xlsx'
 arquivos_tabela_cartão = pasta_arquivo / 'ARQUIVO CARTÃO.xlsx'
 Banco_de_Dados21 = pasta_arquivo/ "Banco_de_Dados-2,1.xlsx"
+#função de fitragem da aba investimentos
+def extrair(linha):
+    if not isinstance(linha, str):
+        return None, None, None
 
+    # Expressão regular para identificar os 3 grupos: movimentação, ticker, quantidade
+    padrao = re.search(r'^(.*?)([A-Z]{4,5}\d{1,2})\s*S/?\s*(\d+)$', linha.strip())
+    if padrao:
+        movimentacao = padrao.group(1).strip()
+        ticker = padrao.group(2).strip()
+        quantidade = int(padrao.group(3))
+        return movimentacao, ticker, quantidade
+    else:
+        return None, None, None
+def extrair_lancamento(linha):
+    linha = linha.strip()
+    # Expressão regular para detectar padrão "TEXTO TICKER S/ <QUANTIDADE>"
+    padrao = re.search(r'^(.*?)([A-Z]{4}[0-9])\s*S/?\s*(\d+)$', linha)
+    if padrao:
+        movimentacao = padrao.group(1).strip()
+        ticker = padrao.group(2).strip()
+        quantidade = int(padrao.group(3))
+    else:
+        # Tentar outro padrão: TEXTO TICKER (sem quantidade)
+        padrao2 = re.search(r'^(.*?)([A-Z]{4}[0-9])$', linha)
+        if padrao2:
+            movimentacao = padrao2.group(1).strip()
+            ticker = padrao2.group(2).strip()
+            quantidade = None
+        else:
+            movimentacao = linha
+            ticker = None
+            quantidade = None
+    return pd.Series([movimentacao, quantidade, ticker])
 # Separar pastas de extratos e faturas
 pastas_extrato = []
 pastas_fatura = []
@@ -57,7 +91,7 @@ df_banco = pd.read_excel(Banco_de_Dados21, sheet_name='Indices', engine='openpyx
 
 # Criar DataFrame final
 df_final = pd.DataFrame()
-
+df_final_invest = pd.DataFrame()
 # Verificar quantidade de arquivos de extrato
 lista_arquivos = []
 for pasta in pastas_extrato:
@@ -77,7 +111,7 @@ if quantidade_arquivos > quantidade_limite: # type: ignore
 
             if arquivo.lower().endswith('picpay.pdf'):
                 with pdfplumber.open(caminho_arquivo) as pdf:
-                    for i in range(1, len(pdf.pages)):
+                    for i in range(0, len(pdf.pages)):
                         page = pdf.pages[i]
                         table = page.extract_table()
                         if table:
@@ -88,6 +122,7 @@ if quantidade_arquivos > quantidade_limite: # type: ignore
                             tabela_extrato = tabela_extrato.drop(['Saldo', 'Saldo Sacável'], axis=1)
                             df_final = pd.concat([df_final, tabela_extrato], ignore_index=True)
                             df_final['Data'] = pd.to_datetime(df_final['Data'], dayfirst=True)
+
             elif arquivo.lower().endswith('xp.csv'):
                 df = pd.read_csv(caminho_arquivo, sep=';')
                 df.columns = ['Data','Descrição','Valor','Saldo']
@@ -96,12 +131,12 @@ if quantidade_arquivos > quantidade_limite: # type: ignore
                 df['Data'] = df['Data'].str.replace('às', '  ')
                 df_final = pd.concat([df_final, df], ignore_index=True)
                 df_final['Data'] = pd.to_datetime(df_final['Data'], dayfirst=True)
+
             elif arquivo.lower().endswith('sicred.pdf'):
                 # Preparar caminhos
                 indice = len(arquivo) - 4
                 arquivo_saida = arquivo[:indice] + '_editado' + arquivo[indice:]
                 caminho_pdf_editado = caminho_pasta / arquivo_saida
-
                 # Criar linhas verticais
                 width, height = letter
                 packet = io.BytesIO()
@@ -111,7 +146,7 @@ if quantidade_arquivos > quantidade_limite: # type: ignore
                 can.line(100, 0, 100, height)
                 can.save()
                 packet.seek(0)
-
+                # Criar linhas 2 verticais
                 packet_1 = io.BytesIO()
                 can_1 = canvas.Canvas(packet_1, pagesize=letter)
                 can_1.setStrokeColorRGB(0, 0, 0)
@@ -119,38 +154,54 @@ if quantidade_arquivos > quantidade_limite: # type: ignore
                 can_1.line(490, 0, 490, height)
                 can_1.save()
                 packet_1.seek(0)
-
+                # Criar linhas 3 verticais
+                packet_2 = io.BytesIO()
+                can_2 = canvas.Canvas(packet_2, pagesize=letter)
+                can_2.setStrokeColorRGB(0, 0, 0)
+                can_2.setLineWidth(1)
+                can_2.line(30, 0, 30, height)
+                can_2.save()
+                packet_2.seek(0)
+                # Criar linhas 4 verticais
+                packet_3 = io.BytesIO()
+                can_3 = canvas.Canvas(packet_3, pagesize=letter)
+                can_3.setStrokeColorRGB(0, 0, 0)
+                can_3.setLineWidth(1)
+                can_3.line(565, 0, 565, height)
+                can_3.save()
+                packet_3.seek(0)
                 # Carregar linhas e PDF original
                 linha_pdf = PdfReader(packet)
                 linha_pdf_1 = PdfReader(packet_1)
+                linha_pdf_2 = PdfReader(packet_2)
+                linha_pdf_3 = PdfReader(packet_3)
                 pagina_linha = linha_pdf.pages[0]
                 pagina_linha_1 = linha_pdf_1.pages[0]
+                pagina_linha_2 = linha_pdf_2.pages[0]
+                pagina_linha_3 = linha_pdf_3.pages[0]
                 pdf_original = PdfReader(str(caminho_arquivo))
                 escritor = PdfWriter()
-
                 # Mesclar linhas em cada página
                 for pagina in pdf_original.pages:
                     pagina.merge_page(pagina_linha)
                     pagina.merge_page(pagina_linha_1)
+                    pagina.merge_page(pagina_linha_2)
+                    pagina.merge_page(pagina_linha_3)
                     escritor.add_page(pagina)
-
                 # Recortar a primeira página
                 writer = PdfWriter()
                 primeira_pagina = escritor.pages[0]
                 primeira_pagina.mediabox.lower_left = (0, 0)
                 primeira_pagina.mediabox.upper_right = (595, 490)
                 writer.add_page(primeira_pagina)
-
                 for pagina in escritor.pages[1:]:
                     writer.add_page(pagina)
-
                 # Salvar PDF editado
                 with open(caminho_pdf_editado, "wb") as f:
                     writer.write(f)
-
                 # Ler PDF editado
                 with pdfplumber.open(caminho_pdf_editado) as pdf:
-                    for i in range(1, len(pdf.pages)):
+                    for i in range(0, len(pdf.pages)):
                         page = pdf.pages[i]
                         table = page.extract_table()
                         if table:
@@ -160,19 +211,128 @@ if quantidade_arquivos > quantidade_limite: # type: ignore
                             tabela_extrato = tabela_extrato[~coluna_modificada.isna()]
                             tabela_extrato.replace(r'^\s*$', np.nan, regex=True, inplace=True)
                             tabela_extrato.dropna(axis=1, how='any', inplace=True)
-                            tabela_extrato.columns = ['Data', 'Descrição', 'Valor']
-                            df_final = pd.concat([df_final, tabela_extrato], ignore_index=True)
+                            tabela_extrato.dropna(inplace=True)
+                            if len(tabela_extrato.columns) == 3:
+                                tabela_extrato.columns = ['Data', 'Descrição', 'Valor']
+                                df_final = pd.concat([df_final, tabela_extrato], ignore_index=True)
 
+            elif arquivo.lower().endswith('xpinvestimentos.xlsx') or arquivo.lower().endswith('clear.xlsx'):
+                df_invest = pd.read_excel(caminho_arquivo)
+                df_invest = df_invest.iloc[14:]
+                indice = [0,4]
+                df_invest.drop(columns=df_invest.columns[indice], inplace=True)
+                df_invest.columns = ['Mov', 'Liquidação', 'Lançamento','Valor da Operação','Saldo']
+                if arquivo.lower().endswith('xpinvestimentos.xlsx'):
+                    df_invest['Instituição'] ='XP INVESTIMENTOS'
+                elif arquivo.lower().endswith('clear.xlsx'):
+                    df_invest['Instituição'] ='CLEAR CORRETORA'
+                # Tenta converter a coluna 'liq' para datetime. Valores inválidos serão convertidos para NaT.
+                df_invest['Data'] = pd.to_datetime(df_invest['Liquidação'], errors='coerce')
+                # Agora, você pode verificar quais linhas têm um datetime válido (não NaT)
+                df_invest = df_invest[df_invest['Data'].notna()]
+                df_invest = df_invest.drop(['Liquidação','Saldo','Mov'], axis=1)
+                df_invest['Entrada/Saída'] = 'Entrada'
+                df_invest = df_invest[~(df_invest['Lançamento'].str.contains('NOTA',case=False,na=False))]
+                df_invest = df_invest[~(df_invest['Lançamento'].str.contains('TED',case=False,na=False))]
+                df_invest = df_invest[~(df_invest['Lançamento'].str.contains('TRANSFERÊNCIA',case=False,na=False))]
+                df_invest = df_invest[~(df_invest['Lançamento'].str.contains('OPERAÇÕES',case=False,na=False))]
+                df_invest[['Movimentação', 'Quantidade', 'Ticker']] = df_invest['Lançamento'].apply(extrair_lancamento)
+                df_invest = df_invest.drop(['Lançamento'], axis=1)
+                df_invest['Preço unitário'] = df_invest['Valor da Operação'] / df_invest['Quantidade']
+                df_final_invest = pd.concat([df_final_invest,df_invest], ignore_index=True)
+                df_final_invest['Data'] = pd.to_datetime(df_final_invest['Data'],dayfirst=True)
+
+            elif arquivo.lower().endswith('clear_Antiga.xlsx'):
+                df_clear = pd.read_excel(caminho_arquivo)
+                df_clear = df_clear.iloc[6:]
+                df_clear.columns = ['Liquidação', 'Mov', 'Lançamento','Valor da Operação','Saldo']
+                # Tenta converter a coluna 'liq' para datetime. Valores inválidos serão convertidos para NaT.
+                df_clear['Data'] = pd.to_datetime(df_clear['Liquidação'], errors='coerce')
+                # Agora, você pode verificar quais linhas têm um datetime válido (não NaT)
+                df_clear = df_clear[df_clear['Data'].notna()]
+                df_clear = df_clear.drop(['Liquidação','Saldo','Mov'], axis=1)
+                df_clear['Instituição'] ='CLEAR CORRETORA'
+                df_clear['Entrada/Saída'] = 'Entrada'
+                df_clear = df_clear[~(df_clear['Lançamento'].str.contains('NOTA',case=False,na=False))]
+                df_clear = df_clear[~(df_clear['Lançamento'].str.contains('TED',case=False,na=False))]
+                df_clear = df_clear[~(df_clear['Lançamento'].str.contains('TRANSFERÊNCIA',case=False,na=False))]
+                df_clear = df_clear[~(df_clear['Lançamento'].str.contains('OPERAÇÕES',case=False,na=False))]
+                df_clear[['Movimentação', 'Quantidade', 'Ticker']] = df_clear['Lançamento'].apply(extrair)
+                df_clear = df_clear.drop(['Lançamento'], axis=1)
+                df_clear['Preço unitário'] = df_clear['Valor da Operação'] / df_clear['Quantidade']
+                df_final_invest = pd.concat([df_final_invest,df_clear], ignore_index=True)
+                df_final_invest['Data'] = pd.to_datetime(df_final_invest['Data'],dayfirst=True)
+
+            elif arquivo.lower().endswith('vend_b3.xlsx'):
+                df_b3 = pd.read_excel(caminho_arquivo)
+                df_b3['Instituição'] ='B3'
+                df_final_invest = pd.concat([df_final_invest,df_b3], ignore_index=True)
+                df_final_invest['Data'] = pd.to_datetime(df_final_invest['Data'],dayfirst=True)
+
+            elif arquivo.lower().endswith('binance.csv'):
+                df_binance = pd.DataFrame()
+                df = pd.read_csv(caminho_arquivo, sep=',')
+                df = df[(df['type'] != 'Deposit') & (df['type']!= 'Withdrawal')]
+                #taduzindo e convertento a coluna type na coluna entrada/saida para cocatenar com o dfinvest
+                df_binance['Entrada/Saída'] = df['type'].map({'Buy': 'Entrada',
+                                                              'Sell': 'Saída',
+                                                              'Receive': 'Entrada'})
+                df_binance['Movimentação'] = df['type'].map({'Buy': 'Transferência - Liquidação',
+                                                              'Sell': 'Transferência - Liquidação',
+                                                              'Receive': 'Bonificação em Ativos'})
+                df_binance['Data'] = pd.to_datetime(df['datetime_tz_BRT']).dt.strftime('%d/%m/%Y')
+                #trazendo o nome dos ativos para a coluna
+                df_binance['Ticker'] = df.apply(
+                                            lambda x: x['received_currency'] if x['type'] in ['Buy', 'Receive'] else x['sent_currency'],
+                                            axis=1
+                                            )
+                df_binance['Nome'] = df_binance['Ticker'] 
+                df_binance['Nome'] =  df_binance['Nome'].map({'USDT': 'Tether a Real brasileiro',
+                                                        'FDUSD': 'First Digital USD',
+                                                        'BTC': ' Bitcoin',
+                                                        'ETH':'Ether',
+                                                        'BRL':'Real Brasileiro'})
+                # ou use um dicionário de nomes
+                df_binance['Instituição'] = 'Binance'
+                #convertendo a quantidade 
+                df_binance['Quantidade'] = df.apply(
+                                                lambda x: x['received_amount'] if x['type'] in ['Buy', 'Receive', 'Deposit'] else x['sent_amount'],
+                                                axis=1
+                                                )
+                df_binance['Valor da Operação'] = df[['sent_value_BRL', 'received_value_BRL']].max(axis=1)
+                # 9. Preço unitário = valor / quantidade (evita divisão por zero)
+                df_binance['Preço unitário'] = df_binance.apply(
+                                                        lambda x: float(x['Valor da Operação']) / float(x['Quantidade']) if float(x['Quantidade']) != 0 else 0,
+                                                        axis=1
+                                                        )
+                df_final_invest = pd.concat([df_final_invest,df_binance], ignore_index=True)
+                df_final_invest['Data'] = pd.to_datetime(df_final_invest['Data'],dayfirst=True)
+                
     # Atualizar índice no banco de dados
     df_banco.iloc[0, 0] = quantidade_arquivos 
-
-
     # Ajustar e salvar o DataFrame final
-    df_final['Data'] = pd.to_datetime(df_final['Data'], format='%d/%m/%Y', errors='coerce')
+    df_final['Data'].astype(str)
+    df_final['Data'] = pd.to_datetime(df_final['Data'], format='%m/%d/%Y', errors='coerce')
+    df_final['Data'] = df_final['Data'].dt.normalize()
     df_final.sort_values(by='Data', inplace=True)
-    
+    def limpar_valores(coluna):
+        return (
+                coluna.astype(str)  # Garante que tudo é string
+                .str.replace(r"R\$\s*", "", regex=True)  # Remove "R$" e espaços
+                .str.replace(".", "", regex=False)  # Remove ponto de milhar
+                .str.replace(",", ".", regex=False)  # Troca vírgula por ponto decimal
+                .str.replace(r"[^0-9\.\-]", "", regex=True)  # Remove tudo, menos números, ponto e sinal de negativo
+                 )
+    df_final["Valor"] = limpar_valores(df_final["Valor"])
+    df_final['Valor'].astype(float)
+    # Ajustar e salvar o DataFrame final
+    df_final_invest['Data'].astype(str)
+    df_final_invest['Data'] = df_final_invest['Data'].dt.normalize()
+    df_final_invest.sort_values(by='Data', inplace=True)
+    df_final_invest['Quantidade'].astype(float)
     with pd.ExcelWriter(Banco_de_Dados21, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
         df_final.to_excel(writer, sheet_name='Extrato', index=False)
+        df_final_invest.to_excel(writer, sheet_name='Extrato_investimentos', index=False)
         df_banco.to_excel(writer, sheet_name='Indices', index=False)
     
 
@@ -222,13 +382,27 @@ def função_sicredi():
 
 
 
+def função_Banco_de_Dados21(): 
+        df_outros_gastos = pd.read_excel(Banco_de_Dados21,sheet_name='Extrato') 
+        df_outros_gastos = df_outros_gastos[df_outros_gastos['Valor']<0]
+        return df_outros_gastos
+
+
+
 def função_picpay():
     df_exel_cartão = pd.read_excel(arquivos_tabela_cartão,sheet_name='PICPAY')
     return df_exel_cartão 
    
 
 
-def funçao_investimento():
+def função_investimentos():
+
+    l = 10
+    return l
+
+
+
+def funçao_cotação_investimento():
     #criando tabela de investimento
     #lendo arquivo
     df_aquivo_exel = pd.read_excel(arquivos_tabela,sheet_name='INVESTIMENTO')
@@ -367,47 +541,34 @@ def funçao_suplemento():
     return df_aquivo_exel
 
 
-  
-def funçao_outros_gastos():
-    #lendo aquivo 
-    df_aquivo_exel = pd.read_excel(arquivos_tabela,sheet_name='OUTROS GASTOS')
-    df_aquivo_exel['DATA'] = df_aquivo_exel['DATA'].astype(str)
-    return df_aquivo_exel
-  
-
 
 def funçao_salario():
-    conta_xp = 23.99
-    conta_picpay = 614.37
-    conta_sicred = 3.91
-    df_aquivo_exel = pd.read_excel(arquivos_tabela,sheet_name='OUTROS GASTOS')
-    recebimento = df_aquivo_exel[(df_aquivo_exel['MODALIDADE'] == 'RECEBIMENTO')]
-    recebimento = sum(recebimento['VALOR'])
-    valor_em_conta = conta_picpay + conta_sicred + conta_xp +  recebimento
-    debito = df_aquivo_exel[(df_aquivo_exel['MODALIDADE'] == 'PAGAMENTO')]
-    debito = sum(debito['VALOR'])
-    valor_na_conta =  valor_em_conta - debito
+    df_outros_gastos = pd.read_excel(Banco_de_Dados21,sheet_name='Extrato')
+    df_outros_gastos = df_outros_gastos[(df_outros_gastos['Descrição'] != 'Aporte na carteira Cofrinho')&
+                                      (df_outros_gastos['Descrição'] != 'Resgate na carteira Cofrinho')]
+    valor_na_conta = sum(df_outros_gastos['Valor'])
     return valor_na_conta
   
 
 
 def função_custo_mensal():
     #buscando os gastos em dinheiro ou tranferencia 
-    df_outros_gastos = pd.read_excel(Banco_de_Dados21,sheet_name='extrato')  
+    df_outros_gastos = pd.read_excel(Banco_de_Dados21,sheet_name='Extrato') 
+    df_outros_gastos = df_outros_gastos[df_outros_gastos['Valor']<0]
     # Convertendo a coluna de datas para datetime
-    df_outros_gastos['DATA'] = pd.to_datetime(df_outros_gastos['DATA'], format='%d/%m/%Y', errors='coerce')
+    df_outros_gastos['Data'] = pd.to_datetime(df_outros_gastos['Data'], format='%d/%m/%Y', errors='coerce')
     #criando as variaveis com valor zero para não dar erro no final 
-    lista_dos_ano = (df_outros_gastos['DATA'].dt.year).unique()
-    primeira_info = df_outros_gastos['DATA'].iloc[0].month
-    ultima_info = (df_outros_gastos['DATA'].iloc[-1]).month
+    lista_dos_ano = (df_outros_gastos['Data'].dt.year).unique()
+    primeira_info = df_outros_gastos['Data'].iloc[0].month
+    ultima_info = (df_outros_gastos['Data'].iloc[-1]).month
     # Definindo o mês e ano para o fechamento
     list_dtabertura = ['11/01','11/02','11/03','11/04','11/05','11/06','11/07','11/08','11/09','11/10','11/11','11/12']
     list_fechamento = ['10/02','10/03','10/04','10/05','10/06','10/07','10/08','10/09','10/10','10/11','10/12','10/01']
     df_custo_mensal_final = pd.DataFrame()
     for ano in lista_dos_ano: 
-        df_fil_ano = df_outros_gastos[(df_outros_gastos['DATA'].dt.year) == int(ano)]
-        primeira_info = df_fil_ano['DATA'].iloc[0].month
-        ultima_info = df_fil_ano['DATA'].iloc[-1].month
+        df_fil_ano = df_outros_gastos[(df_outros_gastos['Data'].dt.year) == int(ano)]
+        primeira_info = df_fil_ano['Data'].iloc[0].month
+        ultima_info = df_fil_ano['Data'].iloc[-1].month
         for mes in range(primeira_info,ultima_info+2):
             if mes == 1:
                 continue
@@ -416,58 +577,37 @@ def função_custo_mensal():
             else:
                 data_fechamento = datetime.strptime(list_fechamento[int(mes)-2] +'/'+ str(ano), '%d/%m/%Y')
             data_abertura = datetime.strptime(list_dtabertura[int(mes)-2] +'/'+ str(ano), '%d/%m/%Y')
-   
+            df_filtrado = df_outros_gastos[(df_outros_gastos['Data'] >= data_abertura) & (df_outros_gastos['Data'] <= data_fechamento)]
 
-            # Filtrando o DataFrame para o intervalo de datas
-            df_filtrado = df_outros_gastos[(df_outros_gastos['DATA'] >= data_abertura) & (df_outros_gastos['DATA'] <= data_fechamento)]
-            df_filtrado = df_filtrado[(df_filtrado['MODALIDADE'] == 'PAGAMENTO') & 
-                                    (df_filtrado['DESCRIÇÃO GERAL'] != 'FATURA') &
-                                    (df_filtrado['MODALIDADE'] != 'TRANFERÊNCIA')]
-            df_pessoal = df_filtrado[(df_filtrado['DEVEDOR'] == 'PESSOAL')]
-            soma_pess_outg = sum(df_pessoal['VALOR'])
-            df_terceiro = df_filtrado[(df_filtrado['DEVEDOR'] == 'TERCEIRO')]
-            soma_terceiros_outg = sum(df_terceiro['VALOR'])
+            # Agora converte para float, e ignora erros
+            df_filtrado["Valor"] = pd.to_numeric(df_filtrado["Valor"], errors="coerce")
+            df_filtrado = df_filtrado[(df_filtrado['Descrição'] != 'RECEBIMENTO PIX - 70041500628 Luiz Henrique Normando Sousa')&
+                                      (df_filtrado['Descrição'] != 'PAGAMENTO PIX - 70041500628 Luiz Henrique Normando Sousa')&
+                                      (df_filtrado['Descrição'] != 'Transferência realizada - TED')&
+                                      (df_filtrado['Descrição'] != 'Aporte na carteira Cofrinho')&
+                                      (df_filtrado['Descrição'] != 'Resgate na carteira Cofrinho')]
+            total = sum(df_filtrado['Valor'])
+            cart_xp =(df_filtrado[df_filtrado['Descrição'].str.contains('Pagamento para BANCO XP S/A',case=False,na=False)])
+            cart_pc = (df_filtrado[df_filtrado['Descrição'].str.contains('Pagamento de fatura PicPay',case=False,na=False)])
+            cart_pc1 = (df_filtrado[df_filtrado['Descrição'].str.contains('Créditos utilizados',case=False,na=False)])
+            cart_sic = (df_filtrado[df_filtrado['Descrição'].str.contains('PAGAMENTO DE FATURA CARTAO ',case=False,na=False)])
+            cart_luiza = (df_filtrado[df_filtrado['Descrição'].str.contains('PAGAMENTO BOLETO - LUIZA CRED',case=False,na=False)])
+            g_mes_cart = sum(cart_pc['Valor'])+sum(cart_pc1['Valor'])+sum(cart_sic['Valor'])+sum(cart_xp['Valor'])+sum(cart_luiza['Valor'])
+            
 
-            #buscando o gasto do mes correto para a tabela custo mensal 
-            #lendo arquivo pois a funçao 'def' tem formataçao nas datas que eu preciso usar
-            excel_file = pd.ExcelFile(arquivos_tabela_cartão)
-            sheet_names = excel_file.sheet_names
-            lis_deve_terc = []
-            soma_lis_terc = 0
-            lis_deve_pess = []
-            soma_lis_pess = 0
-            for planilha in sheet_names:
-                df_exel = pd.read_excel(arquivos_tabela_cartão,sheet_name=planilha)
-                df_exel['DATA PAGAMENTO'] = pd.to_datetime(df_exel['DATA PAGAMENTO'])
-                df_exel = df_exel[df_exel['DATA PAGAMENTO'].dt.month == data_fechamento.month]
-                df_deve_terc = df_exel[(df_exel['DEVEDOR'] == 'TERCEIRO')]
-                lis_deve_terc.append(sum(df_deve_terc['VALOR']))
-                soma_lis_terc  = sum(lis_deve_terc)
-                df_deve_pess = df_exel[(df_exel['DEVEDOR'] == 'PESSOAL')]
-                lis_deve_pess.append(sum(df_deve_pess['VALOR']))
-                soma_lis_pess = sum(lis_deve_pess)
-              
-
-            #g_mes_menos_cart = g_mes_sup_dinhero + g_mes_outg + g_terceiros_outg 
-            g_mes_terceiro = soma_lis_terc + soma_terceiros_outg
-            g_mes_cart = soma_lis_pess + soma_lis_terc
-            print(g_mes_cart)
-            g_em_dinheiro = soma_terceiros_outg + soma_pess_outg 
-            total = g_mes_cart + g_em_dinheiro
-            g_mes_pess = total - g_mes_terceiro
             df_custo_mensal = pd.DataFrame({
+                    'DATA':[data_abertura],
                     'MÊS':[data_abertura],
                     'ANO':[data_abertura.year],
-                    'GASTO NO CARTÃO':[g_mes_cart],
-                    'OUTROS GASTOS':[g_em_dinheiro],
-                    'GASTOS COM TERCEIRO':[g_mes_terceiro],
-                    'TOTAL PESSOAL':[g_mes_pess],
+                    'CARTÃO':[g_mes_cart],
                     'TOTAL':[total]
                     })
-            df_custo_mensal['MÊS'] = pd.to_datetime(df_custo_mensal['MÊS']) 
+            df_custo_mensal['MÊS'] = pd.to_datetime(df_custo_mensal['MÊS'])
             df_custo_mensal['MÊS'] = df_custo_mensal['MÊS'].dt.month.map(meses_portugues)  
             df_custo_mensal['MÊS'] = df_custo_mensal['MÊS'].astype(str)
             df_custo_mensal['ANO'] = df_custo_mensal['ANO'].astype(str)
+            df_custo_mensal['TOTAL'] = df_custo_mensal['TOTAL']* -1
+            df_custo_mensal['CARTÃO'] = df_custo_mensal['CARTÃO']* -1
             df_custo_mensal_final = pd.concat([df_custo_mensal_final, df_custo_mensal], axis=0)
     return df_custo_mensal_final
 
@@ -576,55 +716,31 @@ def função_cotações():
 
 def função_divizão_gasto_mensais():
         #buscando os gastos em dinheiro ou tranferencia 
-    df_outros_gastos = pd.read_excel(arquivos_tabela,sheet_name='OUTROS GASTOS')  
+    df_outros_gastos = pd.read_excel(Banco_de_Dados21,sheet_name='Extrato')
+    df_outros_gastos = df_outros_gastos[df_outros_gastos['Valor']<0]
+    df_outros_gastos['Valor'] = df_outros_gastos['Valor']* -1
     # Convertendo a coluna de datas para datetime
-    df_outros_gastos['DATA'] = pd.to_datetime(df_outros_gastos['DATA'], format='%d/%m/%Y', errors='coerce')
-    #criando as variaveis com valor zero para não dar erro no final 
-    lista_dos_ano = (df_outros_gastos['DATA'].dt.year).unique()
-    primeira_info = df_outros_gastos['DATA'].iloc[0].month
-    ultima_info = (df_outros_gastos['DATA'].iloc[-1]).month
-    # Definindo o mês e ano para o fechamento
-    list_dtabertura = ['11/01','11/02','11/03','11/04','11/05','11/06','11/07','11/08','11/09','11/10','11/11','11/12']
-    list_fechamento = ['10/02','10/03','10/04','10/05','10/06','10/07','10/08','10/09','10/10','10/11','10/12','10/01']
-    
-    lista_s = []
-    for ano in lista_dos_ano: 
-        df_fil_ano = df_outros_gastos[(df_outros_gastos['DATA'].dt.year) == int(ano)]
-        primeira_info = df_fil_ano['DATA'].iloc[0].month
-        ultima_info = df_fil_ano['DATA'].iloc[-1].month
-        for mes in range(primeira_info,ultima_info+2):
-            if mes == 1:
-                continue
-            if mes == 13:
-                data_fechamento = datetime.strptime(list_fechamento[int(mes)-2] +'/'+ str(ano+1), '%d/%m/%Y')
-            else:
-                data_fechamento = datetime.strptime(list_fechamento[int(mes)-2] +'/'+ str(ano), '%d/%m/%Y')
-            data_abertura = datetime.strptime(list_dtabertura[int(mes)-2] +'/'+ str(ano), '%d/%m/%Y')
 
-
-
-            df_f = df_outros_gastos[(df_outros_gastos['DATA'] >= data_abertura) & (df_outros_gastos['DATA'] <= data_fechamento)]
-            df_filtrado = df_outros_gastos[(df_outros_gastos['MODALIDADE'] == 'PAGAMENTO')&(df_outros_gastos['DESCRIÇÃO GERAL'] != 'TRANSFERÊNCIA')]
-            lista_v = []
-            lista_de_gastos = list(df_filtrado['DESCRIÇÃO GERAL'].unique())
-            for gasto in lista_de_gastos:
-                soma = 0
-                df_gasto = df_f[df_f['DESCRIÇÃO GERAL'] == gasto]
-                soma = sum(df_gasto['VALOR'])
-                if soma:
-                    lista_v.append(soma)
-                else:
-                    soma = 0
-                    lista_v.append(soma)
-                if lista_v and type(lista_v[0]) == str:
-                    continue
-                else:
-                    lista_v.insert(0,str(data_abertura)) 
-            lista_de_gastos.insert(0,'DATA')
-            lista_s.append(lista_v)
-            df = pd.DataFrame(lista_s, columns=lista_de_gastos)
+    # Agora converte para float, e ignora erros
+    df_divisão_gasto = pd.DataFrame()
+    df_filtrado = df_outros_gastos[(df_outros_gastos['Descrição'] != 'RECEBIMENTO PIX - 70041500628 Luiz Henrique Normando Sousa')&
+                                      (df_outros_gastos['Descrição'] != 'PAGAMENTO PIX - 70041500628 Luiz Henrique Normando Sousa')&
+                                      (df_outros_gastos['Descrição'] !='PAGAMENTO PIX - 70041500628 LUIZ HENRIQUE NORMANDO SOUSA')&
+                                      (df_outros_gastos['Descrição'] !='Ajuste nos rendimentos')&
+                                      (df_outros_gastos['Descrição'] != 'Transferência realizada - TED')&
+                                      (df_outros_gastos['Descrição'] != 'Aporte na carteira Cofrinho')&
+                                      (df_outros_gastos['Descrição'] != 'Resgate na carteira Cofrinho')]
             
-    return df
+    lista_de_gastos = list(df_filtrado['Descrição'].unique())
+    for gasto in lista_de_gastos:
+        soma = 0
+        df_gasto = df_filtrado[df_filtrado['Descrição'] == gasto]
+        soma = sum(df_gasto['Valor'])
+        df = pd.DataFrame({'Descrição':[gasto],
+                              'Valor':[soma]})
+        df_divisão_gasto = pd.concat([df_divisão_gasto,df],axis=0) 
+        df_divisão_gasto = df_divisão_gasto.sort_values(by="Valor", ascending=False)      
+    return df_divisão_gasto
 
 
 
