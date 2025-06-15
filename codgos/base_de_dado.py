@@ -43,19 +43,6 @@ arquivos_tabela = pasta_arquivo / 'CUSTOS E INVESTIMENTOS02.xlsx'
 arquivos_tabela_cartão = pasta_arquivo / 'ARQUIVO CARTÃO.xlsx'
 Banco_de_Dados21 = pasta_arquivo/ "Banco_de_Dados-2,1.xlsx"
 #função de fitragem da aba investimentos
-def extrair(linha):
-    if not isinstance(linha, str):
-        return None, None, None
-
-    # Expressão regular para identificar os 3 grupos: movimentação, ticker, quantidade
-    padrao = re.search(r'^(.*?)([A-Z]{4,5}\d{1,2})\s*S/?\s*(\d+)$', linha.strip())
-    if padrao:
-        movimentacao = padrao.group(1).strip()
-        ticker = padrao.group(2).strip()
-        quantidade = int(padrao.group(3))
-        return movimentacao, ticker, quantidade
-    else:
-        return None, None, None
 def extrair_lancamento(linha):
     linha = linha.strip()
     # Expressão regular para detectar padrão "TEXTO TICKER S/ <QUANTIDADE>"
@@ -79,13 +66,14 @@ def extrair_lancamento(linha):
 # Separar pastas de extratos e faturas
 pastas_extrato = []
 pastas_fatura = []
-
+pasta_relatorio = []
 for pasta in os.listdir(pasta_arquivo):
     if pasta.lower().startswith('extrato'):
         pastas_extrato.append(pasta)
     elif pasta.lower().startswith('fatura'):
         pastas_fatura.append(pasta)
-
+    elif pasta.lower().startswith('relatorio'):
+        pasta_relatorio.append(pasta)
 # Carregar índice de controle
 df_banco = pd.read_excel(Banco_de_Dados21, sheet_name='Indices', engine='openpyxl')
 
@@ -100,6 +88,34 @@ for pasta in pastas_extrato:
 
 quantidade_arquivos = len(lista_arquivos)
 quantidade_limite = df_banco.iloc[0, 0]
+
+lista_ativos_ibov = pd.DataFrame()
+
+if quantidade_arquivos > quantidade_limite: # type: ignore
+    for pasta in pasta_relatorio:
+        caminho_pasta = pasta_arquivo / pasta
+        arquivos_xlsx = os.listdir(caminho_pasta)
+
+        for arquivo in arquivos_xlsx:
+            caminho_arquivo = caminho_pasta / arquivo
+
+            if arquivo.lower().endswith('ibov.xlsx'):
+                df_1 = pd.read_excel(caminho_arquivo,sheet_name='Posição - Ações')
+                df_1['Tipo Ativo'] = 'Ações'
+                df_1.rename(columns={"Escriturador": "Administrador"}, inplace=True)
+                df_1[['Ticker', 'Nome_Empresa']] = df_1['Produto'].str.split(' - ', n=1, expand=True)
+                lista_ativos_ibov = pd.concat([lista_ativos_ibov,df_1], ignore_index=True)
+                sheet = pd.ExcelFile(caminho_arquivo)
+                if 'Posição - Fundos' in sheet.sheet_names:
+                    df_2 = pd.read_excel(caminho_arquivo,sheet_name='Posição - Fundos')
+                    df_2['Tipo Ativo'] = 'FII'
+                    df_2.rename(columns={"CNPJ do Fundo": "CNPJ da Empresa"}, inplace=True)
+                    df_2[['Ticker', 'Nome_Empresa']] = df_2['Produto'].str.split(' - ', n=1, expand=True)
+                    lista_ativos_ibov = pd.concat([lista_ativos_ibov,df_2], ignore_index=True)
+                lista_ativos_ibov = lista_ativos_ibov.drop(['Produto','Código de Negociação'], axis=1)
+                lista_ativos_ibov.dropna(how='any', inplace=True)
+                lista_ativos_ibov = lista_ativos_ibov.drop_duplicates(subset='Ticker')
+                lista_ativos_ibov['Ticker'].astype(str)
 
 if quantidade_arquivos > quantidade_limite: # type: ignore
     for pasta in pastas_extrato:
@@ -216,16 +232,26 @@ if quantidade_arquivos > quantidade_limite: # type: ignore
                                 tabela_extrato.columns = ['Data', 'Descrição', 'Valor']
                                 df_final = pd.concat([df_final, tabela_extrato], ignore_index=True)
 
-            elif arquivo.lower().endswith('xpinvestimentos.xlsx') or arquivo.lower().endswith('clear.xlsx'):
+            elif arquivo.lower().endswith('xpinvestimentos.xlsx') or arquivo.lower().endswith('clear.xlsx') or arquivo.lower().endswith('antiga.xlsx'):
                 df_invest = pd.read_excel(caminho_arquivo)
-                df_invest = df_invest.iloc[14:]
-                indice = [0,4]
-                df_invest.drop(columns=df_invest.columns[indice], inplace=True)
-                df_invest.columns = ['Mov', 'Liquidação', 'Lançamento','Valor da Operação','Saldo']
-                if arquivo.lower().endswith('xpinvestimentos.xlsx'):
+                if arquivo.lower().endswith('xpinvestimentos.xlsx') or arquivo.lower().endswith('clear.xlsx'):
+                    df_invest = df_invest.iloc[14:]
+                    indice = [0,4]
+                    df_invest.drop(columns=df_invest.columns[indice], inplace=True)
+                    df_invest.columns = ['Mov', 'Liquidação', 'Lançamento','Valor da Operação','Saldo']
                     df_invest['Instituição'] ='XP INVESTIMENTOS'
                 elif arquivo.lower().endswith('clear.xlsx'):
                     df_invest['Instituição'] ='CLEAR CORRETORA'
+                elif arquivo.lower().endswith('antiga.xlsx'):
+                    df_invest = df_invest.iloc[6:]
+                    df_invest.columns = ['Liq','Mov', 'Histórico','Valor','Saldo']
+                    df_invest.rename(columns={"Liq": "Liquidação"}, inplace=True)
+                    df_invest.rename(columns={"Histórico": "Lançamento"}, inplace=True)
+                    df_invest.rename(columns={"Valor": "Valor da Operação"}, inplace=True)
+                    df_invest['Instituição'] ='CLEAR CORRETORA'
+                
+
+
                 # Tenta converter a coluna 'liq' para datetime. Valores inválidos serão convertidos para NaT.
                 df_invest['Data'] = pd.to_datetime(df_invest['Liquidação'], errors='coerce')
                 # Agora, você pode verificar quais linhas têm um datetime válido (não NaT)
@@ -236,36 +262,54 @@ if quantidade_arquivos > quantidade_limite: # type: ignore
                 df_invest = df_invest[~(df_invest['Lançamento'].str.contains('TED',case=False,na=False))]
                 df_invest = df_invest[~(df_invest['Lançamento'].str.contains('TRANSFERÊNCIA',case=False,na=False))]
                 df_invest = df_invest[~(df_invest['Lançamento'].str.contains('OPERAÇÕES',case=False,na=False))]
-                df_invest[['Movimentação', 'Quantidade', 'Ticker']] = df_invest['Lançamento'].apply(extrair_lancamento)
+                if arquivo.lower().endswith('xpinvestimentos.xlsx') or arquivo.lower().endswith('clear.xlsx'):
+                    df_invest['Lançamento'] = df_invest['Lançamento'].str.replace(' S/', '', regex=False)
+                    # 2. Normaliza espaços
+                    df_invest['Lançamento'] = df_invest['Lançamento'].str.replace(r'\s+', ' ', regex=True).str.strip()
+                    # 3. Tenta extrair com padrão completo: movimentação + ticker + quantidade
+                    padrao_completo = df_invest['Lançamento'].str.extract(r'^(.*?DE CLIENTES|FRAÇÕES DE AÇÕES)\s+([A-Z0-9]+)\s+(\d+)$')
+                    padrao_completo.columns = ['Movimentação', 'Ticker', 'Quantidade']
+                    # 4. Tenta extrair casos sem quantidade (como "FRAÇÕES DE AÇÕES ITSA4")
+                    padrao_sem_quantidade = df_invest['Lançamento'].str.extract(r'^(.*?DE CLIENTES|FRAÇÕES DE AÇÕES)\s+([A-Z0-9]+)$')
+                    padrao_sem_quantidade.columns = ['Movimentação_alt', 'Ticker_alt']
+                    # 5. Monta colunas finais
+                    df_invest['Movimentação'] = padrao_completo['Movimentação'].fillna(padrao_sem_quantidade['Movimentação_alt'])
+                    df_invest['Ticker'] = padrao_completo['Ticker'].fillna(padrao_sem_quantidade['Ticker_alt'])
+                    df_invest['Quantidade'] = padrao_completo['Quantidade'].fillna(1).astype(int)
+
+                elif arquivo.lower().endswith('antiga.xlsx'):
+                    df_invest['Lançamento'] = df_invest['Lançamento'].str.replace('PAPEL', '', regex=False)
+                    # 2. Remove espaços duplicados e tira espaços nas pontas
+                    df_invest['Lançamento'] = df_invest['Lançamento'].str.replace(r'\s+', ' ', regex=True).str.strip()
+                    # 3. Extrai usando regex: captura texto + número + ticker
+                    # O padrão é: tudo até o número = movimentação, número = quantidade, final = ticker
+                    df_invest[['Movimentação', 'Quantidade', 'Ticker']] = df_invest['Lançamento'].str.extract(r'^(.*?)[ ]+(\d+)[ ]+([A-Z0-9]+)$')
+                lista_ativos_ibov["Ticker"] = lista_ativos_ibov["Ticker"].str.strip().str.upper()
+                df_invest["Ticker"] = df_invest["Ticker"].str.strip().str.upper()
+                dicionario_nomes = lista_ativos_ibov.set_index("Ticker")["Nome_Empresa"]
+                # Cria uma nova coluna com os nomes completos usando map
+                df_invest["Nome"] = df_invest["Ticker"].map(dicionario_nomes)
+                # Cria um dicionário Ticker -> Nome da empresa
+                dicionario_cnpj = lista_ativos_ibov.set_index("Ticker")["CNPJ da Empresa"]
+                # Cria uma nova coluna com os nomes completos usando map
+                df_invest["CNPJ da Empresa"] = df_invest["Ticker"].map(dicionario_cnpj)
+                # Cria um dicionário Ticker -> Nome da empresa
+                dicionario_tipo = lista_ativos_ibov.set_index("Ticker")["Tipo Ativo"]
+                # Cria uma nova coluna com os nomes completos usando map
+                df_invest["Tipo Ativo"] = df_invest["Ticker"].map(dicionario_tipo)
                 df_invest = df_invest.drop(['Lançamento'], axis=1)
-                df_invest['Preço unitário'] = df_invest['Valor da Operação'] / df_invest['Quantidade']
+                df_invest['Valor da Operação'].astype(float)
+                df_invest['Preço unitário'] = df_invest['Valor da Operação'] / df_invest['Quantidade'].astype(float)
                 df_final_invest = pd.concat([df_final_invest,df_invest], ignore_index=True)
                 df_final_invest['Data'] = pd.to_datetime(df_final_invest['Data'],dayfirst=True)
 
-            elif arquivo.lower().endswith('clear_Antiga.xlsx'):
-                df_clear = pd.read_excel(caminho_arquivo)
-                df_clear = df_clear.iloc[6:]
-                df_clear.columns = ['Liquidação', 'Mov', 'Lançamento','Valor da Operação','Saldo']
-                # Tenta converter a coluna 'liq' para datetime. Valores inválidos serão convertidos para NaT.
-                df_clear['Data'] = pd.to_datetime(df_clear['Liquidação'], errors='coerce')
-                # Agora, você pode verificar quais linhas têm um datetime válido (não NaT)
-                df_clear = df_clear[df_clear['Data'].notna()]
-                df_clear = df_clear.drop(['Liquidação','Saldo','Mov'], axis=1)
-                df_clear['Instituição'] ='CLEAR CORRETORA'
-                df_clear['Entrada/Saída'] = 'Entrada'
-                df_clear = df_clear[~(df_clear['Lançamento'].str.contains('NOTA',case=False,na=False))]
-                df_clear = df_clear[~(df_clear['Lançamento'].str.contains('TED',case=False,na=False))]
-                df_clear = df_clear[~(df_clear['Lançamento'].str.contains('TRANSFERÊNCIA',case=False,na=False))]
-                df_clear = df_clear[~(df_clear['Lançamento'].str.contains('OPERAÇÕES',case=False,na=False))]
-                df_clear[['Movimentação', 'Quantidade', 'Ticker']] = df_clear['Lançamento'].apply(extrair)
-                df_clear = df_clear.drop(['Lançamento'], axis=1)
-                df_clear['Preço unitário'] = df_clear['Valor da Operação'] / df_clear['Quantidade']
-                df_final_invest = pd.concat([df_final_invest,df_clear], ignore_index=True)
-                df_final_invest['Data'] = pd.to_datetime(df_final_invest['Data'],dayfirst=True)
 
             elif arquivo.lower().endswith('vend_b3.xlsx'):
                 df_b3 = pd.read_excel(caminho_arquivo)
                 df_b3['Instituição'] ='B3'
+                df_b3.rename(columns={"Produto": "Lançamento"}, inplace=True)
+                df_b3[['Ticker', 'Produto']] = df_b3['Lançamento'].str.split(' - ', n=1, expand=True)
+                df_b3 = df_b3.drop(['Lançamento','Produto'], axis=1)
                 df_final_invest = pd.concat([df_final_invest,df_b3], ignore_index=True)
                 df_final_invest['Data'] = pd.to_datetime(df_final_invest['Data'],dayfirst=True)
 
@@ -286,6 +330,7 @@ if quantidade_arquivos > quantidade_limite: # type: ignore
                                             lambda x: x['received_currency'] if x['type'] in ['Buy', 'Receive'] else x['sent_currency'],
                                             axis=1
                                             )
+                df_binance['CNPJ da Empresa'] = 0
                 df_binance['Nome'] = df_binance['Ticker'] 
                 df_binance['Nome'] =  df_binance['Nome'].map({'USDT': 'Tether a Real brasileiro',
                                                         'FDUSD': 'First Digital USD',
@@ -305,6 +350,7 @@ if quantidade_arquivos > quantidade_limite: # type: ignore
                                                         lambda x: float(x['Valor da Operação']) / float(x['Quantidade']) if float(x['Quantidade']) != 0 else 0,
                                                         axis=1
                                                         )
+                df_binance['Tipo Ativo'] = 'Cripto'
                 df_final_invest = pd.concat([df_final_invest,df_binance], ignore_index=True)
                 df_final_invest['Data'] = pd.to_datetime(df_final_invest['Data'],dayfirst=True)
                 
